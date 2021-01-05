@@ -1,7 +1,7 @@
 # FSCIL-GFR
 Official Code for the paper Few-Shot Class Incremental Learning with Generative Feature Replay
 
-**Still needed to add proper documentation of code and some minor changes are required**
+**Some changes yet to be done**
 
 ![](./media/Model2.png)
 ## License
