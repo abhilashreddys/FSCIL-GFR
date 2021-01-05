@@ -30,8 +30,6 @@ from MiniImageNet import *
 cudnn.benchmark = True
 from copy import deepcopy
 
-# import wandb
-
 def model_summary(model):
     print("model_summary")
     print()
@@ -174,14 +172,6 @@ def compute_prototype(model, data_loader, batch_size, number_samples=200):
     prototype = {'class_mean': class_mean, 'class_std': class_std,'class_label': class_label}
 
     return prototype
-# def fast_weights(grad,state_dict,update_lr):
-#     for i,(key,value) in enumerate(state_dict.items()):
-#         value -= update_lr * grad[i]
-#     return state_dict
-
-# def fast_weights(grad,parameters,update_lr):
-#     return torch.nn.parameter.Parameter(map(lambda p: p[1] - update_lr * p[0], zip(grad, parameters)))
-
 
 def train_task(args, train_loader, current_task, prototype={}, pre_index=0):
     num_class_per_task = (args.num_class-args.nb_cl_fg) // args.num_task
@@ -203,8 +193,6 @@ def train_task(args, train_loader, current_task, prototype={}, pre_index=0):
     elif 'cifar100' in args.data:
         model = models.create('resnet18_cifar', pretrained=False, feat_dim=args.feat_dim,hidden_dim=256,embed_dim=args.num_class,norm=True)
 
-    # mlp = ClassifierMLP(feat_dim=args.feat_dim, class_dim=args.num_class)
-
     if current_task > 0:
         if 'miniimagenet' in args.data:
             model = models.create('resnet18_imagenet', pretrained=False, feat_dim=args.feat_dim,embed_dim=args.num_class,hidden_dim=256,norm=True)
@@ -214,22 +202,16 @@ def train_task(args, train_loader, current_task, prototype={}, pre_index=0):
         model_old = deepcopy(model)
         model_old.eval()
         model_old = freeze_model(model_old)
-        # mlp = torch.load(os.path.join(log_dir, 'mlp_task_' + str(current_task - 1).zfill(2) + '_%d_model.pkl' % int(args.epochs - 1)))
-        #mlp_old = deepcopy(mlp)
-        #mlp_old.eval()
-        #mlp_old = freeze_model(mlp_old)
+        
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # model = model.cuda()
     model = model.to(device)
-    # mlp = mlp.to(device)
+
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = StepLR(optimizer, step_size=args.lr_decay_step, gamma=args.lr_decay)
-    # optimizer_mlp = torch.optim.Adam(mlp.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    # scheduler_mlp = StepLR(optimizer_mlp, step_size=args.lr_decay_step, gamma=args.lr_decay)
     
     loss_mse = torch.nn.MSELoss(reduction='sum')
-    #if current_task == 0:
-        #model_summary(model)
+
     # # Loss weight for gradient penalty used in W-GAN
     lambda_gp = args.lambda_gp
     lambda_lwf = args.gan_tradeoff
@@ -272,18 +254,9 @@ def train_task(args, train_loader, current_task, prototype={}, pre_index=0):
     scheduler_G = StepLR(optimizer_G, step_size=150, gamma=0.3)
     scheduler_D = StepLR(optimizer_D, step_size=150, gamma=0.3)
 
-    # wandb
-    # wandb.watch(model)
-    # wandb.watch(discriminator)
-    # wandb.watch(generator)
-
-    #y_onehot = torch.FloatTensor(args.BatchSize, args.num_class)
-    #print(current_task,model.embed.weight)
     for p in generator.parameters():  # set requires_grad to False
         p.requires_grad = False
 
-    # if current_task>0:
-    #    model = model.eval()
 
     for epoch in range(args.epochs):
 
@@ -291,11 +264,9 @@ def train_task(args, train_loader, current_task, prototype={}, pre_index=0):
                     'C/loss_aug': 0.0,
                     'C/loss_cls': 0.0,
                     'C/loss_cls_q':0.0}
-        # scheduler.step()
 
 
 ##### MAML on feature extraction
-# db = DataLoader(mini, args.BatchSize, shuffle=True, num_workers=1, pin_memory=True)
 
         for step, (x_spt, y_spt, x_qry, y_qry) in enumerate(train_loader):
             x_spt, y_spt, x_qry, y_qry = x_spt.to(device), y_spt.to(device), x_qry.to(device), y_qry.to(device)
@@ -318,27 +289,17 @@ def train_task(args, train_loader, current_task, prototype={}, pre_index=0):
             
             for i in range(args.BatchSize):
                 # 1. run the i-th task and compute loss for k=0
-                #print(torch.isfinite(x_spt[i]))
                 embed_feat = model(x_spt[i])
-                #print(i,y_spt[i])
-                # print(0,i,current_task)
-                # print(torch.isfinite(embed_feat))
-                # $$$$$$$$$$$$$$$$
                 if current_task == 0:
-                    # print(embed_feat.shape)
                     soft_feat = model.embed(embed_feat)
-                    # soft_feat = mlp(embed_feat)
                     loss_cls = torch.nn.CrossEntropyLoss()(soft_feat, y_spt[i])
                     loss = loss.clone() + loss_cls
                 else:
                     embed_feat_old = model_old(x_spt[i])
-                    # print(1,i,current_task)
-                    # print(torch.isfinite(embed_feat_old))
 
                 ### Feature Extractor Loss
                 if current_task > 0:
                     loss_aug = torch.dist(embed_feat, embed_feat_old , 2)
-                    # loss_tmp += args.tradeoff * loss_aug * old_task_factor
                     loss = loss.clone() + args.tradeoff * loss_aug * old_task_factor
                 
                 ### Replay and Classification Loss
@@ -374,77 +335,67 @@ def train_task(args, train_loader, current_task, prototype={}, pre_index=0):
                     embed_sythesis = torch.cat((embed_feat,embed_sythesis))
                     embed_label_sythesis = torch.cat((y_spt[i],embed_label_sythesis.to(device)))
                     soft_feat_syt = model.embed(embed_sythesis)
-                    # soft_feat_syt = mlp(embed_sythesis)
+                    
                     batch_size1 = x_spt[i].shape[0]
                     batch_size2 = embed_feat.shape[0]
-                    # print(batch_size1,batch_size2,"batchs")
+                    
                     
                     loss_cls = torch.nn.CrossEntropyLoss()(soft_feat_syt[:batch_size1], embed_label_sythesis[:batch_size1])
-                    # print(2,i,current_task)
-                    # print(torch.isfinite(loss_cls))
-
                     loss_cls_old = torch.nn.CrossEntropyLoss()(soft_feat_syt[batch_size2:], embed_label_sythesis[batch_size2:])
-                    # print(3,i,current_task)
-                    # print(torch.isfinite(loss_cls_old))
 
                     loss_cls += loss_cls_old * old_task_factor
                     loss_cls /= args.nb_cl_fg // num_class_per_task + current_task
                     loss += loss_cls
-                # $$$$$$$$$$$$$$$$
-                # loss = F.cross_entropy(embed_feat, y_spt[i])
+                
                 grad = torch.autograd.grad(loss, model.parameters(),create_graph=True, retain_graph=True)
-                # fast_weights = list(map(lambda p: p[1] - args.update_lr * p[0], zip(grad, model.parameters())))
-                # fast_weights_dict = fast_weights(grad,model.state_dict(),args.update_lr)
+                
                 # this is the loss and accuracy before first update
                 with torch.no_grad():
                     # [setsz, nway]
                     embed_feat_q = model(x_qry[i])
                     soft_feat_q = model.embed(embed_feat_q)
-                    # soft_feat_q = mlp(embed_feat_q)
+
                     loss_q = torch.nn.CrossEntropyLoss()(soft_feat_q, y_qry[i])
-                    # loss_q = F.cross_entropy(embed_feat_q, y_qry[i])
-                    # loss_q = torch.nn.CrossEntropyLoss()(soft_feat_q, y_qry[i])
                     losses_q[0] += loss_q
+
                     embed_feat = model(x_spt[i])
                     soft_feat = model.embed(embed_feat)
-                    # soft_feat = mlp(embed_feat)
+
                     pred_s = F.softmax(soft_feat, dim=1).argmax(dim=1)
                     corr = torch.eq(pred_s, y_spt[i]).sum().item()  # convert to numpy
                     correct_s[0] = correct_s[0] + corr
-                    #print(current_task,0,pred_s)
 
                     pred_q = F.softmax(soft_feat_q, dim=1).argmax(dim=1)
                     correct = torch.eq(pred_q, y_qry[i]).sum().item()
                     corrects[0] = corrects[0] + correct
+
                 # this is the loss and accuracy after the first update
                 with torch.no_grad():
                     # [setsz, nway]
                     for e,param in enumerate(model.parameters(),0):
                         param.data -= args.update_lr * grad[e]
-                    # model.load_state_dict(fast_weights_dict)
+
                     embed_feat_q = model(x_qry[i])
                     soft_feat_q = model.embed(embed_feat_q)
-                    # soft_feat_q = mlp(embed_feat_q)
+
                     loss_q = torch.nn.CrossEntropyLoss()(soft_feat_q, y_qry[i])
-                    # loss_q = torch.nn.cross_entropy(soft_feat_q, y_qry[i])
                     losses_q[1] += loss_q
                     # [setsz]
                     embed_feat = model(x_spt[i])
                     soft_feat = model.embed(embed_feat)
-                    # soft_feat = mlp(embed_feat)
+
                     pred_s = F.softmax(soft_feat, dim=1).argmax(dim=1)
                     corr = torch.eq(pred_s, y_spt[i]).sum().item()  # convert to numpy
                     correct_s[1] = correct_s[1] + corr
-                    #print(current_task,1,pred_s)
+
                     pred_q = F.softmax(soft_feat_q, dim=1).argmax(dim=1)
                     correct = torch.eq(pred_q, y_qry[i]).sum().item()
                     corrects[1] = corrects[1] + correct
 
                 for k in range(1, args.update_step):
                     # 1. run the i-th task and compute loss for k=1~K-1
-                    # model.load_state_dict(fast_weights_dict)
                     embed_feat = model(x_spt[i])
-                    # loss = torch.nn.cross_entropy(embed_feat, y_spt[i])
+
                     loss = torch.zeros(1).to(device)
                     if current_task>0:
                         embed_feat_old = model_old(x_spt[i])
@@ -480,28 +431,22 @@ def train_task(args, train_loader, current_task, prototype={}, pre_index=0):
                         embed_label_sythesis = torch.cat((y_spt[i],embed_label_sythesis.to(device)))
 
                         soft_feat_syt = model.embed(embed_sythesis)
-                        # soft_feat_syt = mlp(embed_sythesis)
+
                         batch_size1 = x_spt[i].shape[0]
                         batch_size2 = embed_feat.shape[0]
 
                         loss_cls = torch.nn.CrossEntropyLoss()(soft_feat_syt[:batch_size1], embed_label_sythesis[:batch_size1])
-
                         loss_cls_old = torch.nn.CrossEntropyLoss()(soft_feat_syt[batch_size2:], embed_label_sythesis[batch_size2:])
-                        
                         loss_cls += loss_cls_old * old_task_factor
                         loss_cls /= args.nb_cl_fg // num_class_per_task + current_task
                         loss += loss_cls
                     else:
                         soft_feat = model.embed(embed_feat)
-                        # soft_feat = mlp(embed_feat)
                         loss_cls = torch.nn.CrossEntropyLoss()(soft_feat, y_spt[i])
                         loss += loss_cls
                     # 2. compute grad on theta_pi
                     grad = torch.autograd.grad(loss, model.parameters(),create_graph=True, retain_graph=True,allow_unused=True)
                     # 3. theta_pi = theta_pi - train_lr * grad
-                    # fast_weights = list(map(lambda p: p[1] - args.update_lr * p[0], zip(grad, fast_weights)))
-                    # fast_weights_dict = fast_weights(grad,model.state_dict(),args.update_lr)
-                    # model.load_state_dict(fast_weights_dict)
                     for e,param in enumerate(model.parameters(),0):
                         param.data -= args.update_lr * grad[e]
                     embed_feat = model(x_spt[i])
@@ -509,7 +454,7 @@ def train_task(args, train_loader, current_task, prototype={}, pre_index=0):
                     # soft_feat = mlp(embed_feat)
                     embed_feat_q = model(x_qry[i])
                     soft_feat_q = model.embed(embed_feat_q)
-                    # soft_feat_q = mlp(embed_feat_q)
+
                     # loss_q will be overwritten and just keep the loss_q on last update step.
                     loss_q = torch.nn.CrossEntropyLoss()(soft_feat_q, y_qry[i])
                     losses_q[k + 1] += loss_q
@@ -518,7 +463,6 @@ def train_task(args, train_loader, current_task, prototype={}, pre_index=0):
                         pred_s = F.softmax(soft_feat, dim=1).argmax(dim=1)
                         corr = torch.eq(pred_s, y_spt[i]).sum().item()  # convert to numpy
                         correct_s[k + 1] = correct_s[k + 1] + corr
-                        #print(current_task,k+1,pred_s)
 
                         pred_q = F.softmax(soft_feat_q, dim=1).argmax(dim=1)
                         correct = torch.eq(pred_q, y_qry[i]).sum().item()  # convert to numpy
@@ -530,37 +474,22 @@ def train_task(args, train_loader, current_task, prototype={}, pre_index=0):
             # sum over all losses on query set across all tasks
             loss_q = losses_q[-1] / BatchSize
             loss_q = Variable(loss_q, requires_grad = True)
-            # loss += loss_q
+
             # optimize theta parameters
             optimizer.zero_grad()
-            # optimizer_mlp.zero_grad()
-            # loss.backward()
             loss_q.backward()
-            # print('meta update')
-            # for p in self.net.parameters()[:5]:
-            # 	print(torch.norm(p).item())
             optimizer.step()
-            # optimizer_mlp.step()
             scheduler.step()
-            # scheduler_mlp.step()
+
             accs = np.array([float(c) for c in corrects]) / float(querysz * BatchSize)
             accs_spt = np.array([float(c) for c in correct_s]) / float(setsz * BatchSize)
             loss_log['C/loss'] += loss.item()
             loss_log['C/loss_cls'] += loss_cls.item()
             loss_log['C/loss_aug'] += args.tradeoff*loss_aug.item() if args.tradeoff != 0 else 0
             loss_log['C/loss_cls_q'] += loss_q.item()
-            # wandb.log({
-            #           "Total loss": loss_log['C/loss'],
-            #           "Cls Loss": loss_log['C/loss_cls'],
-            #           "Aug Loss": loss_log['C/loss_aug'],
-            #           "Support Accuracy": 100. * accs_spt[-1],
-            #           "Query Cls Loss": loss_log['C/loss_cls_q'],
-            #           "Query Accuracy": 100. * accs[-1]
-            #           })
+
             del loss_cls
             del loss_q
-            #if epoch == 0 and i == 0:
-                #print(50 * '#')
 
         print('[Metric Epoch %05d]\t Total Loss: %.3f \t LwF Loss: %.3f \t Spt Accuracy FeatureX: %.3f \t Query Loss: %.3f \t Query Accuracy FeatureX: %.3f \t'
                 % (epoch + 1, loss_log['C/loss'], loss_log['C/loss_aug'], accs_spt[-1], loss_log['C/loss_cls_q'], accs[-1]))
@@ -572,18 +501,13 @@ def train_task(args, train_loader, current_task, prototype={}, pre_index=0):
         if epoch == args.epochs-1:
             torch.save(model, os.path.join(log_dir, 'task_' + str(
                 current_task).zfill(2) + '_%d_model.pkl' % epoch))
-            # torch.save(model, os.path.join(wandb.run.dir, 'task_' + str(
-                #current_task).zfill(2) + '_%d_model.pkl' % epoch))
-            #print(current_task,model.embed.weight)
-            # torch.save(mlp, os.path.join(log_dir, 'mlp_task_' + str(
-                # current_task).zfill(2) + '_%d_model.pkl' % epoch))
             
 
 ################# feature extraction training end ########################
 
 ############################################## GAN Training ####################################################
     model = model.eval()
-    # mlp = mlp.eval()
+
     for p in model.parameters():  # set requires_grad to False
         p.requires_grad = False
     for p in generator.parameters():  # set requires_grad to True
@@ -617,8 +541,7 @@ def train_task(args, train_loader, current_task, prototype={}, pre_index=0):
                         'E/kld': 0.0,
                         'E/mse': 0.0,
                         'E/loss': 0.0}
-            # scheduler_D.step()
-            # scheduler_G.step()
+            
             for step, (x_spt, y_spt, x_qry, y_qry) in enumerate(train_loader, 0):
                 x_spt, y_spt, x_qry, y_qry = x_spt.to(device), y_spt.to(device), x_qry.to(device), y_qry.to(device)
                 
@@ -637,14 +560,11 @@ def train_task(args, train_loader, current_task, prototype={}, pre_index=0):
                     labels = y_spt[i]
              
                     real_feat = model(inputs)
-                    #print(torch.isfinite(real_feat))
-                    # print(real_feat.size())
                     z = torch.Tensor(np.random.normal(0, 1, (setsz, args.latent_dim))).to(device)             
                     
                     labels_q = y_qry[i]
                     real_feat_q = model(x_qry[i])
-                    #print(torch.isfinite(real_feat_q))
-                    # print(x_qry[i].size())
+
                     z_q = torch.Tensor(np.random.normal(0, 1, (querysz, args.latent_dim))).to(device)
 
                     y_onehot.zero_()
@@ -657,9 +577,6 @@ def train_task(args, train_loader, current_task, prototype={}, pre_index=0):
                     ############################# Train MetaGAN ###########################
 
                     for k in range(args.update_step):
-
-                        #for p in discriminator.parameters():
-                            #p.requires_grad = True
 
                         fake_feat = generator(z, syn_label)
 
@@ -688,11 +605,9 @@ def train_task(args, train_loader, current_task, prototype={}, pre_index=0):
                         # Adversarial loss (wasserstein)
 
                         g_loss_lbls = criterion_softmax(disc_fake_acgan, labels.to(device))
-                        #print(torch.isfinite(g_loss_lbls))
                         d_loss_rf = -torch.mean(real_validity) + torch.mean(fake_validity)
                         d_gradient_penalty = compute_gradient_penalty(discriminator, real_feat, fake_feat, syn_label).mean()
                         d_loss_lbls = criterion_softmax(disc_real_acgan, labels.to(device))
-                        #print(torch.isfinite(d_loss_lbls))
                         d_loss = d_loss_rf + lambda_gp * d_gradient_penalty + 0.5*(d_loss_lbls + g_loss_lbls)
 
                         g_loss_rf = -torch.mean(fake_validity)
@@ -716,15 +631,15 @@ def train_task(args, train_loader, current_task, prototype={}, pre_index=0):
                         real_validity_q, disc_real_acgan_q = discriminator(real_feat_q, syn_label_q)
 
                         # Adversarial loss query
-                        # d_loss_rf_q = -torch.mean(real_validity_q) + torch.mean(fake_validity_q)
-                        # d_gradient_penalty_q = compute_gradient_penalty(discriminator, real_feat_q, fake_feat_q, syn_label_q).mean()
+                        d_loss_rf_q = -torch.mean(real_validity_q) + torch.mean(fake_validity_q)
+                        d_gradient_penalty_q = compute_gradient_penalty(discriminator, real_feat_q, fake_feat_q, syn_label_q).mean()
                         d_loss_lbls_q = criterion_softmax(disc_real_acgan_q, labels_q.to(device))
-                        # d_loss_q = d_loss_rf_q + lambda_gp * d_gradient_penalty_q + d_loss_lbls_q
-                        d_losses_q[k] = d_losses_q[k] + d_loss_lbls_q
+                        d_loss_q = d_loss_rf_q + lambda_gp * d_gradient_penalty_q + d_loss_lbls_q
+                        d_losses_q[k] = d_losses_q[k] + d_loss_q # + d_loss_lbls_q
                         
-                        # g_loss_rf_q = -torch.mean(fake_validity_q)
+                        g_loss_rf_q = -torch.mean(fake_validity_q)
                         g_loss_lbls_q = criterion_softmax(disc_fake_acgan_q, labels_q.to(device))
-                        # g_loss_q = g_loss_rf_q + g_loss_lbls_q # + lambda_lwf*old_task_factor * loss_aug_q
+                        g_loss_q = g_loss_rf_q + g_loss_lbls_q # + lambda_lwf*old_task_factor * loss_aug_q
                         g_losses_q[k] = g_losses_q[k] + g_loss_lbls_q
                         
                 #with torch.autograd.detect_anomaly():
@@ -761,18 +676,7 @@ def train_task(args, train_loader, current_task, prototype={}, pre_index=0):
                 #loss_log['G/new_lbls_q'] += g_loss_lbls_q.item() #!!!
                 #loss_log['G/new_classifier'] += 0 #!
                 loss_log['G/prev_mse'] += loss_aug.item() if lambda_lwf != 0 else 0
-                # wandb.log({
-                #   "D/loss":loss_log['D/loss'],
-                #   "D/new_rf":loss_log['D/new_rf'],
-                #   'D/new_lbls':loss_log['D/new_lbls'],
-                #   'D/new_gp':loss_log['D/new_gp'],
-                #   'D/loss_q':loss_log['D/loss_q'],
-                #   'G/loss':loss_log['G/loss'],
-                #   'G/new_rf':loss_log['G/new_rf'],
-                #   'G/new_lbls':loss_log['G/new_lbls'],
-                #   'G/loss_q':loss_log['G/loss_q'],
-                #   'G/prev_mse':loss_log['G/prev_mse']
-                # })
+
                 del g_loss_rf, g_loss_lbls
                 
             print('[GAN Epoch %05d]\t D Total Loss: %.3f \t G Total Loss: %.3f \t LwF Loss: %.3f' % (
@@ -788,10 +692,6 @@ def train_task(args, train_loader, current_task, prototype={}, pre_index=0):
                     current_task).zfill(2) + '_%d_model_generator.pkl' % epoch))
                 torch.save(discriminator, os.path.join(log_dir, 'task_' + str(
                     current_task).zfill(2) + '_%d_model_discriminator.pkl' % epoch))
-                #torch.save(generator, os.path.join(wandb.run.dir, 'task_' + str(
-                    #current_task).zfill(2) + '_%d_model_generator.pkl' % epoch))
-                #torch.save(discriminator, os.path.join(wandb.run.dir, 'task_' + str(
-                    #current_task).zfill(2) + '_%d_model_discriminator.pkl' % epoch))
     tb_writer.close()
 
     prototype = compute_prototype(model,train_loader,batch_size=args.BatchSize)  #!
@@ -799,8 +699,6 @@ def train_task(args, train_loader, current_task, prototype={}, pre_index=0):
 
 
 if __name__ == '__main__':
-
-    #wandb.init(project="fsil-gfr")
 
     parser = argparse.ArgumentParser(description='Generative Feature Replay Training')
     # image sizes
@@ -860,7 +758,7 @@ if __name__ == '__main__':
     parser.add_argument('-update_step', type=int, help='task-level inner update steps', default=5)
 
     args = parser.parse_args()
-    #wandb.config.update(args)
+
     # Data
     print('mean_replay:', args.mean_replay)
     print('==> Preparing data..')
