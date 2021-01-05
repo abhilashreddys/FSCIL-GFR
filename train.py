@@ -865,27 +865,27 @@ if __name__ == '__main__':
     print('mean_replay:', args.mean_replay)
     print('==> Preparing data..')
     
-    # if args.data == 'miniimagenet':
-    #     mean_values = [0.485, 0.456, 0.406]
-    #     std_values = [0.229, 0.224, 0.225]
-    #     transform_train = transforms.Compose([
-    #         #transforms.Resize(256),
-    #         transforms.RandomResizedCrop(224),
-    #         transforms.RandomHorizontalFlip(),
-    #         transforms.ToTensor(),
-    #         transforms.Normalize(mean=mean_values,
-    #                              std=std_values)
-    #     ])
-    #     traindir = os.path.join(args.dir, 'ILSVRC12_256', 'train')
+    if args.data == 'miniimagenet':
+        mean_values = [0.485, 0.456, 0.406]
+        std_values = [0.229, 0.224, 0.225]
+        transform_train = transforms.Compose([
+            #transforms.Resize(256),
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=mean_values,
+                                 std=std_values)
+        ])
+        traindir = os.path.join(args.dir, 'ILSVRC12_256', 'train')
 
-    # if  args.data == 'cifar':
-    #     transform_train = transforms.Compose([
-    #         transforms.RandomCrop(32, padding=4),
-    #         transforms.RandomHorizontalFlip(),
-    #         transforms.ToTensor(),
-    #         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-    #     ])
-    #     traindir = args.dir + '/cifar'
+    if  args.data == 'cifar':
+        transform_train = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])
+        traindir = args.dir + '/cifar'
 
     num_classes = args.num_class 
     num_task = args.num_task
